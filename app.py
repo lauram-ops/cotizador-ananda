@@ -23,7 +23,7 @@ for nombre in posibles_logos:
 
 # 2. BUSCAR CSV AUTOMÁTICO
 CSV_PATH = None
-NOMBRE_CSV_INTERNO = "inventario.csv" # <--- ASÍ DEBE LLAMARSE TU ARCHIVO EN GITHUB
+NOMBRE_CSV_INTERNO = "inventario.csv"
 ruta_csv = os.path.join(BASE_DIR, NOMBRE_CSV_INTERNO)
 if os.path.exists(ruta_csv):
     CSV_PATH = ruta_csv
@@ -70,15 +70,11 @@ def obtener_descuento_automatico(plazo, enganche_pct):
 
 @st.cache_data
 def load_data_from_path(file_path):
-    # Carga desde ruta interna (automática)
     encodings = ['utf-8', 'latin-1', 'cp1252']
     for enc in encodings:
         try:
-            # Primero leemos para encontrar el header
             df_raw = pd.read_csv(file_path, header=None, encoding=enc)
-            # Buscamos la fila que dice "LOTE"
             h_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.contains('LOTE', case=False).any(), axis=1)].index[0]
-            # Leemos de nuevo con el header correcto
             df = pd.read_csv(file_path, header=h_idx, encoding=enc)
             return procesar_df(df)
         except: continue
@@ -86,7 +82,6 @@ def load_data_from_path(file_path):
 
 @st.cache_data
 def load_data_from_upload(uploaded_file):
-    # Carga desde subida manual
     encodings = ['utf-8', 'latin-1', 'cp1252']
     for enc in encodings:
         try:
@@ -103,8 +98,25 @@ def procesar_df(df):
     df.columns = df.columns.str.strip()
     df = df[pd.to_numeric(df['LOTE'], errors='coerce').notnull()].copy()
     df['LOTE'] = df['LOTE'].astype(int)
-    price_cols = [c for c in df.columns if 'Lista' in c and 'Construccion' in c]
-    list_map = {f"Lista {i+1}": col for i, col in enumerate(price_cols)}
+    
+    # --- CORRECCIÓN PARA DETECTAR LAS 10 LISTAS ---
+    # Buscamos cualquier columna que contenga la palabra "Lista"
+    price_cols = [c for c in df.columns if 'Lista' in str(c)]
+    
+    # Creamos un mapa limpio (Lista 1, Lista 2...)
+    list_map = {}
+    for col in price_cols:
+        # Extraemos el nombre simple para el menú desplegable
+        # Ej: "Lista 1 Preventa..." -> "Lista 1"
+        parts = str(col).split()
+        if len(parts) >= 2 and parts[0] == 'Lista':
+             # Guardamos como llave el nombre original para no perderlo
+             nombre_corto = f"{parts[0]} {parts[1]}"
+             list_map[col] = col 
+        else:
+             list_map[col] = col
+             
+    # Reordenamos el mapa para que salga Lista 1, Lista 2... en orden
     return df, list_map
 
 # -----------------------------------------------------------------------------
@@ -306,7 +318,7 @@ list_map = None
 
 # 1. Intentar cargar automático
 if CSV_PATH:
-    st.sidebar.success("✅ Inventario cargado automáticamente")
+    # ELIMINADO EL MENSAJE DE ÉXITO AQUÍ
     df, list_map = load_data_from_path(CSV_PATH)
 
 # 2. Si no hay automático, pedir manual
@@ -319,11 +331,25 @@ if df is None:
 if df is not None and list_map:
     st.sidebar.header("1. PROPIEDAD")
     sel_lote = st.sidebar.selectbox("Lote", sorted(df['LOTE'].unique()))
-    sel_lista = st.sidebar.selectbox("Lista de Precio", list(list_map.keys()))
+    
+    # Ordenar las listas para que salgan Lista 1, Lista 2...
+    def sort_lists(key):
+        try:
+            # Extrae el número después de "Lista"
+            parts = key.split()
+            if len(parts) > 1 and parts[0] == "Lista":
+                return int(parts[1])
+            return 999
+        except: return 999
+        
+    sorted_lists = sorted(list(list_map.keys()), key=sort_lists)
+    sel_lista = st.sidebar.selectbox("Lista de Precio", sorted_lists)
     
     row = df[df['LOTE'] == sel_lote].iloc[0]
     try:
-        val_str = str(row[list_map[sel_lista]]).replace('$','').replace(',','')
+        # Usamos el mapa para obtener el nombre real de la columna
+        col_real = list_map[sel_lista]
+        val_str = str(row[col_real]).replace('$','').replace(',','')
         precio_base = float(val_str)
     except: precio_base = 0.0
     m2 = float(row['Total Terreno']) if 'Total Terreno' in df.columns else 0.0
