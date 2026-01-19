@@ -99,24 +99,22 @@ def procesar_df(df):
     df = df[pd.to_numeric(df['LOTE'], errors='coerce').notnull()].copy()
     df['LOTE'] = df['LOTE'].astype(int)
     
-    # --- CORRECCIÓN PARA DETECTAR LAS 10 LISTAS ---
-    # Buscamos cualquier columna que contenga la palabra "Lista"
+    # 1. Encontrar todas las columnas que tengan "Lista"
     price_cols = [c for c in df.columns if 'Lista' in str(c)]
     
-    # Creamos un mapa limpio (Lista 1, Lista 2...)
+    # 2. Crear un mapa para limpiarlas (Quitar texto extra)
     list_map = {}
     for col in price_cols:
-        # Extraemos el nombre simple para el menú desplegable
-        # Ej: "Lista 1 Preventa..." -> "Lista 1"
         parts = str(col).split()
+        # Si la columna empieza con "Lista" y tiene un número (ej. "Lista 1 ...")
         if len(parts) >= 2 and parts[0] == 'Lista':
-             # Guardamos como llave el nombre original para no perderlo
+             # Guardamos solo "Lista X"
              nombre_corto = f"{parts[0]} {parts[1]}"
-             list_map[col] = col 
+             list_map[nombre_corto] = col 
         else:
+             # Si tiene un nombre raro, lo dejamos igual
              list_map[col] = col
              
-    # Reordenamos el mapa para que salga Lista 1, Lista 2... en orden
     return df, list_map
 
 # -----------------------------------------------------------------------------
@@ -318,7 +316,6 @@ list_map = None
 
 # 1. Intentar cargar automático
 if CSV_PATH:
-    # ELIMINADO EL MENSAJE DE ÉXITO AQUÍ
     df, list_map = load_data_from_path(CSV_PATH)
 
 # 2. Si no hay automático, pedir manual
@@ -332,10 +329,9 @@ if df is not None and list_map:
     st.sidebar.header("1. PROPIEDAD")
     sel_lote = st.sidebar.selectbox("Lote", sorted(df['LOTE'].unique()))
     
-    # Ordenar las listas para que salgan Lista 1, Lista 2...
+    # Función para ordenar correctamente (Lista 1, Lista 2, Lista 10)
     def sort_lists(key):
         try:
-            # Extrae el número después de "Lista"
             parts = key.split()
             if len(parts) > 1 and parts[0] == "Lista":
                 return int(parts[1])
@@ -347,7 +343,6 @@ if df is not None and list_map:
     
     row = df[df['LOTE'] == sel_lote].iloc[0]
     try:
-        # Usamos el mapa para obtener el nombre real de la columna
         col_real = list_map[sel_lista]
         val_str = str(row[col_real]).replace('$','').replace(',','')
         precio_base = float(val_str)
