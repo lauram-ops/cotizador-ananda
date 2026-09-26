@@ -1,438 +1,560 @@
+# -*- coding: utf-8 -*-
+"""
+Cotizador de preventa · Ananda Kino
+-----------------------------------
+App de una sola pantalla para que los asesores generen cotizaciones
+en PDF durante la cita. Corre en Streamlit Community Cloud.
+
+Estructura del repositorio esperada:
+    app.py              (este archivo)
+    requirements.txt
+    logo.png            (logo de Ananda, fondo transparente)
+"""
+
+import base64
+from datetime import date, datetime
+
 import streamlit as st
-import pandas as pd
 from fpdf import FPDF
-from datetime import datetime
-import os
+
+with open("logo.png", "rb") as _f:
+    LOGO_B64 = base64.b64encode(_f.read()).decode("ascii")
 
 # ==============================================================================
-# 🧠 CÓDIGO INTELIGENTE DE RUTAS Y ARCHIVOS
+# CONFIGURACIÓN DE PÁGINA
 # ==============================================================================
-try:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-except:
-    BASE_DIR = os.getcwd()
+st.set_page_config(page_title="Ananda Kino | Cotizador de preventa", page_icon="🏠", layout="wide")
 
-# 1. BUSCAR LOGO
-LOGO_PATH = None
-posibles_logos = ["logo.png", "logo.jpg", "logo.jpeg", "Logo.png", "sinFondo_Azul.png"]
-for nombre in posibles_logos:
-    ruta_temp = os.path.join(BASE_DIR, nombre)
-    if os.path.exists(ruta_temp):
-        LOGO_PATH = ruta_temp
-        break
-
-# 2. BUSCAR CSV AUTOMÁTICO
-CSV_PATH = None
-NOMBRE_CSV_INTERNO = "inventario.csv"
-ruta_csv = os.path.join(BASE_DIR, NOMBRE_CSV_INTERNO)
-if os.path.exists(ruta_csv):
-    CSV_PATH = ruta_csv
-
-# ==============================================================================
-# 🔴 MATRIZ DE DESCUENTOS EXACTA
-# ==============================================================================
-TABLA_DESCUENTOS = {
-    0:  {95: 0.105, 90: 0.095, 80: 0.085, 70: 0.075, 60: 0.065, 50: 0.055, 40: 0.045, 30: 0.035, 25: 0.025, 20: 0.020, 15: 0.015},
-    1:  {95: 0.105, 90: 0.095, 80: 0.085, 70: 0.075, 60: 0.065, 50: 0.055, 40: 0.045, 30: 0.035, 25: 0.025, 20: 0.020, 15: 0.015},
-    2:  {95: 0.105, 90: 0.095, 80: 0.085, 70: 0.075, 60: 0.065, 50: 0.055, 40: 0.045, 30: 0.035, 25: 0.025, 20: 0.020, 15: 0.015},
-    3:  {95: 0.105, 90: 0.095, 80: 0.085, 70: 0.075, 60: 0.065, 50: 0.055, 40: 0.045, 30: 0.035, 25: 0.025, 20: 0.020, 15: 0.015},
-    4:  {95: 0.100, 90: 0.090, 80: 0.080, 70: 0.070, 60: 0.060, 50: 0.050, 40: 0.040, 30: 0.030, 25: 0.020, 20: 0.015, 15: 0.010},
-    5:  {95: 0.095, 90: 0.085, 80: 0.075, 70: 0.065, 60: 0.055, 50: 0.045, 40: 0.035, 30: 0.025, 25: 0.015, 20: 0.010, 15: 0.005},
-    6:  {95: 0.090, 90: 0.080, 80: 0.070, 70: 0.060, 60: 0.050, 50: 0.040, 40: 0.030, 30: 0.020, 25: 0.010, 20: 0.005},
-    7:  {95: 0.085, 90: 0.075, 80: 0.065, 70: 0.055, 60: 0.045, 50: 0.035, 40: 0.025, 30: 0.015, 25: 0.005},
-    8:  {95: 0.080, 90: 0.070, 80: 0.060, 70: 0.050, 60: 0.040, 50: 0.030, 40: 0.020, 30: 0.010},
-    9:  {95: 0.075, 90: 0.065, 80: 0.055, 70: 0.045, 60: 0.035, 50: 0.025, 40: 0.015, 30: 0.005},
-    10: {95: 0.070, 90: 0.060, 80: 0.050, 70: 0.040, 60: 0.030, 50: 0.020, 40: 0.010},
-    11: {95: 0.0675, 90: 0.0575, 80: 0.0475, 70: 0.0375, 60: 0.0275, 50: 0.0175, 40: 0.0075},
-    12: {95: 0.065, 90: 0.055, 80: 0.045, 70: 0.035, 60: 0.025, 50: 0.015, 40: 0.005},
-    13: {95: 0.0625, 90: 0.0525, 80: 0.0425, 70: 0.0325, 60: 0.0225, 50: 0.0125, 40: 0.0025},
-}
-
-# --- PALETA DE COLORES (Azul Intermedio) ---
-BRAND_COLOR = "#004e92"  
-SIDEBAR_BG = "#C5DFF8"   
-SIDEBAR_TEXT = "#003366" 
-MAIN_BG_GRADIENT = "linear-gradient(135deg, #E8F1F8 0%, #FAFCFF 100%)" 
-ACCENT_COLOR = "#00c6ff" 
-
-# -----------------------------------------------------------------------------
-# 1. LÓGICA MATEMÁTICA Y DE DATOS
-# -----------------------------------------------------------------------------
-def obtener_descuento_automatico(plazo, enganche_pct):
-    if plazo not in TABLA_DESCUENTOS:
-        return 0.0
-    escalones = TABLA_DESCUENTOS[plazo]
-    niveles = sorted(escalones.keys(), reverse=True) 
-    for nivel in niveles:
-        if enganche_pct >= nivel:
-            return escalones[nivel]
-    return 0.0
-
-@st.cache_data
-def load_data_from_path(file_path):
-    encodings = ['utf-8', 'latin-1', 'cp1252']
-    for enc in encodings:
-        try:
-            df_raw = pd.read_csv(file_path, header=None, encoding=enc)
-            h_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.contains('LOTE', case=False).any(), axis=1)].index[0]
-            df = pd.read_csv(file_path, header=h_idx, encoding=enc)
-            return procesar_df(df)
-        except: continue
-    return None, None
-
-@st.cache_data
-def load_data_from_upload(uploaded_file):
-    encodings = ['utf-8', 'latin-1', 'cp1252']
-    for enc in encodings:
-        try:
-            uploaded_file.seek(0)
-            df_raw = pd.read_csv(uploaded_file, header=None, encoding=enc)
-            h_idx = df_raw[df_raw.apply(lambda r: r.astype(str).str.contains('LOTE', case=False).any(), axis=1)].index[0]
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, header=h_idx, encoding=enc)
-            return procesar_df(df)
-        except: continue
-    return None, None
-
-def procesar_df(df):
-    df.columns = df.columns.str.strip()
-    df = df[pd.to_numeric(df['LOTE'], errors='coerce').notnull()].copy()
-    df['LOTE'] = df['LOTE'].astype(int)
-    
-    # 1. Encontrar todas las columnas que tengan "Lista"
-    price_cols = [c for c in df.columns if 'Lista' in str(c)]
-    
-    # 2. Crear un mapa para limpiarlas (Quitar texto extra)
-    list_map = {}
-    for col in price_cols:
-        parts = str(col).split()
-        # Si la columna empieza con "Lista" y tiene un número (ej. "Lista 1 ...")
-        if len(parts) >= 2 and parts[0] == 'Lista':
-             # Guardamos solo "Lista X"
-             nombre_corto = f"{parts[0]} {parts[1]}"
-             list_map[nombre_corto] = col 
-        else:
-             # Si tiene un nombre raro, lo dejamos igual
-             list_map[col] = col
-             
-    return df, list_map
-
-# -----------------------------------------------------------------------------
-# 2. CONFIGURACIÓN VISUAL
-# -----------------------------------------------------------------------------
-st.set_page_config(page_title="Cotizador Ananda Kino", layout="wide", page_icon="🌊")
+# Paleta tomada del logo de Ananda
+BRAND = "#4D6D80"       # botones / acentos
+LOGO_C = "#658597"      # línea del logo
+SOFT = "#E9F0F3"        # fondo de tarjetas
+INK = "#16232C"
+MUTED = "#5C6D78"
+LINE = "#DDE5EA"
+BAD = "#B3261E"
 
 st.markdown(f"""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap');
-    html, body, [class*="css"] {{ font-family: 'Avenir Next', 'Nunito', sans-serif; }}
-    
-    .stApp {{ background: {MAIN_BG_GRADIENT}; }}
-    
-    section[data-testid="stSidebar"] {{ 
-        background-color: {SIDEBAR_BG}; 
-        border-right: 1px solid #b8cce4; 
-    }}
-    section[data-testid="stSidebar"] p, 
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] .stMarkdown {{ 
-        color: {SIDEBAR_TEXT} !important; 
-        font-weight: 600; 
-    }}
-    
-    h1, h2, h3 {{ color: {BRAND_COLOR} !important; font-weight: 800 !important; }}
-    
-    div[data-testid="metric-container"] {{ 
-        background-color: white; padding: 15px; border-radius: 12px; 
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05); text-align: center; border: 1px solid #eee;
-    }}
-    div[data-testid="stMetricValue"] {{ font-size: 1.5rem !important; font-weight: 800 !important; color: {BRAND_COLOR}; }}
-    
-    .enganche-card {{
-        background-color: white; border-radius: 15px; padding: 20px;
-        margin-bottom: 20px; box-shadow: 0 8px 20px rgba(0, 78, 146, 0.15);
-        border-top: 6px solid {BRAND_COLOR}; text-align: center;
-    }}
-    
-    .final-saldo {{
-        background-color: white; border-radius: 15px; padding: 20px;
-        margin-top: 0px; box-shadow: 0 8px 20px rgba(0,0,0, 0.15);
-        border-top: 6px solid #2c3e50; text-align: center;
-    }}
-    
-    .card-title {{ color: #7f8c8d; font-size: 1.1em; font-weight: 600; margin-bottom: 5px; text-transform: uppercase; }}
-    .card-amount {{ font-size: 2.5em; font-weight: 900; margin: 0; }}
-    .card-subtitle {{ font-weight: 700; margin-top: 5px; font-size: 0.9em; }}
-    
-    .blue-text {{ color: {BRAND_COLOR}; }}
-    .dark-text {{ color: #2c3e50; }}
-    .cyan-text {{ color: #00c6ff; }}
-
-    .payment-table {{
-        width: 100%; border-collapse: collapse; margin-top: 10px;
-        background-color: rgba(255,255,255,0.9); border-radius: 10px; overflow: hidden;
-    }}
-    .payment-table th {{ background-color: {BRAND_COLOR}; color: white; padding: 10px; text-align: left; font-size: 0.9em; }}
-    .payment-table td {{ padding: 10px; border-bottom: 1px solid #ddd; color: #333; font-size: 0.9em; }}
-    
-    .stDownloadButton > button {{ width: 100%; background: linear-gradient(90deg, {BRAND_COLOR} 0%, {ACCENT_COLOR} 100%); color: white !important; font-weight: 800; padding: 15px; border-radius: 50px; border: none; box-shadow: 0 4px 15px rgba(0, 78, 146, 0.4); }}
-    .stDownloadButton > button:hover {{ transform: scale(1.02); }}
-    </style>
+<style>
+.stApp {{ background: #F3F6F8; }}
+.badge-lista {{
+    display:inline-block; background:{BRAND}; color:#fff; font-weight:800;
+    font-size:15px; letter-spacing:.5px; padding:5px 14px; border-radius:8px;
+}}
+.doc-card {{
+    background:#fff; border-radius:12px; padding:26px 30px; border:1px solid {LINE};
+}}
+.doc-head {{
+    display:flex; justify-content:space-between; align-items:center;
+    border-bottom:2px solid {LOGO_C}; padding-bottom:14px; margin-bottom:16px; flex-wrap:wrap; gap:10px;
+}}
+.kind {{ font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase; text-align:right; color:{INK}; }}
+.sub {{ font-size:12px; color:{MUTED}; text-align:right; margin-top:4px; }}
+.meta-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }}
+.meta-k {{ font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:{MUTED}; }}
+.meta-v {{ font-weight:600; color:{INK}; }}
+.house-box {{ background:{SOFT}; border-radius:10px; padding:14px 16px; margin-bottom:16px; }}
+.house-t {{ font-weight:700; color:{INK}; }}
+.house-s {{ font-size:13px; color:{MUTED}; margin-top:3px; }}
+table.eco {{ width:100%; border-collapse:collapse; margin-bottom:18px; }}
+table.eco td {{ padding:10px 6px; border-bottom:1px solid {LINE}; vertical-align:top; color:{INK}; }}
+table.eco td:last-child {{ text-align:right; font-weight:600; white-space:nowrap; }}
+table.eco tr.final td {{ background:{SOFT}; font-weight:800; font-size:16px; }}
+table.eco .small {{ display:block; font-size:12px; color:{MUTED}; font-weight:400; }}
+.disc {{ color:{BAD}; }}
+h3.sect {{ font-size:13px; text-transform:uppercase; letter-spacing:1px; color:{BRAND}; margin-bottom:6px; }}
+.pays-grid {{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:18px; }}
+.pay-item {{ display:flex; justify-content:space-between; font-size:13px; border:1px solid {LINE}; border-radius:6px; padding:6px 10px; }}
+.pay-item span:first-child {{ color:{MUTED}; }}
+.fine {{ font-size:12px; color:{MUTED}; margin-top:14px; border-top:1px solid {LINE}; padding-top:10px; }}
+.push-note {{ background:{BRAND}; color:#fff; border-radius:8px; padding:12px 14px; font-size:14px; margin-bottom:10px; }}
+.warn-note {{ background:#FFF3DC; color:#8A5300; border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:10px; }}
+.info-note {{ background:{SOFT}; color:{MUTED}; border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:10px; }}
+</style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# 3. MOTOR DE PDF
-# -----------------------------------------------------------------------------
-class PDF(FPDF):
-    def header(self):
-        logo_cargado = False
-        if LOGO_PATH:
-            try:
-                self.image(LOGO_PATH, 10, 8, 30)
-                logo_cargado = True
-            except: pass
-        
-        self.set_font('Arial', 'B', 20)
-        self.set_text_color(0, 78, 146)
-        
-        if logo_cargado:
-            self.set_xy(50, 10)
-            self.cell(0, 10, 'COTIZACION ANANDA KINO', 0, 1, 'R')
-        else:
-            self.cell(0, 10, 'COTIZACION ANANDA KINO', 0, 1, 'C')
-        self.ln(10)
+# ==============================================================================
+# DATOS DEL PROYECTO — LISTA DE PRECIOS 2 (vigente desde el 18-sep-2026)
+# ==============================================================================
+# desplante = m² de planta baja del prototipo (Memorándum Ananda): A = 82.04, C = 74.12
+# patio = privativo - desplante
+GRUPOS = [
+    # (desde, hasta, priv, terreno, constr, precio, activo, desplante)
+    (1,  4,  147, 239.32, 128.8, 3518249, False, 82.04),
+    (5,  11, 161, 262.11, 128.8, 3518249, False, 82.04),
+    (23, 29, 161, 262.11, 128.8, 3518249, True,  82.04),
+    (30, 33, 147, 239.32, 128.8, 3460569, True,  82.04),
+    (34, 37, 133, 216.53, 120.8, 3299724, True,  74.12),
+    (38, 44, 161, 262.11, 128.8, 3518249, True,  82.04),
+]
+VENDIDOS = {23, 29, 44}
 
-    def footer(self):
-        self.set_y(-15)
-        self.set_font('Arial', '', 8)
-        self.set_text_color(100, 100, 100)
-        self.cell(0, 10, f'Entrega Feb 2027 | Pagina {self.page_no()}', 0, 0, 'C')
+# La lista cambia cada 3 ventas; la siguiente lista sube 3% sobre la actual.
+VENDIDOS_AL_INICIO_DE_LISTA = 3   # vendidos cuando arrancó la Lista 2
+VENTAS_POR_LISTA = 3
+INCREMENTO_SIGUIENTE = 1.03
+LISTA_TXT = "Lista de precios 2 (septiembre 2026)"
+LISTA_BADGE = "LISTA 2 · SEP 2026"
 
-def create_pdf(cliente, lote_data, calculos, plan_pago):
-    pdf = PDF()
-    pdf.add_page()
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_draw_color(0, 78, 146)
-    pdf.set_line_width(0.5)
-    pdf.line(10, 30, 200, 30) 
-    pdf.ln(20)
-    
-    pdf.set_font('Arial', 'B', 11)
-    pdf.set_fill_color(240, 245, 255)
-    pdf.cell(0, 8, '   DATOS DEL CLIENTE', 0, 1, 'L', True)
-    pdf.set_font('Arial', '', 10)
-    pdf.ln(2)
-    pdf.cell(100, 6, f"Cliente: {cliente['nombre']}", 0)
-    pdf.cell(0, 6, f"Fecha: {cliente['fecha']}", 0, 1)
-    pdf.cell(100, 6, f"Telefono: {cliente['telefono']}", 0)
-    pdf.ln(5)
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+         "septiembre", "octubre", "noviembre", "diciembre"]
 
-    pdf.set_font('Arial', 'B', 11)
-    pdf.cell(0, 8, '   DETALLE DE LA UNIDAD', 0, 1, 'L', True)
-    pdf.set_font('Arial', '', 10)
-    pdf.ln(2)
-    pdf.cell(100, 6, f"Lote: {lote_data['Lote']}", 0)
-    pdf.cell(0, 6, f"Superficie: {lote_data['M2']:.2f} m2", 0, 1)
-    pdf.ln(5)
-    
-    pdf.set_font('Arial', 'B', 11)
-    pdf.cell(0, 8, '   PLAN FINANCIERO (PREVENTA)', 0, 1, 'L', True)
-    
-    w_lbl = 130
-    w_val = 60
-    
-    def fila(txt, val, negrita=False):
-        pdf.set_font('Arial', 'B' if negrita else '', 10)
-        pdf.cell(w_lbl, 8, txt, 0)
-        pdf.cell(w_val, 8, val, 0, 1, 'R')
-        pdf.set_draw_color(200, 200, 200)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
 
-    pdf.ln(2)
-    fila("Precio de Lista Base", f"${calculos['precio_lista']:,.2f}")
-    fila(f"Descuento Aplicado ({calculos['pct_descuento']*100:.2f}%)", f"-${calculos['monto_descuento']:,.2f}")
-    
-    pdf.set_font('Arial', 'B', 12)
-    pdf.set_text_color(0, 78, 146)
-    pdf.cell(w_lbl, 12, "PRECIO FINAL DE VENTA", 0)
-    pdf.cell(w_val, 12, f"${calculos['precio_final']:,.2f}", 0, 1, 'R')
-    pdf.set_text_color(0,0,0)
-    
-    pdf.ln(2)
-    pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, "DESGLOSE DE ENGANCHE:", 0, 1)
-    
-    fila(f"Total Enganche ({plan_pago['pct_enganche']}%)", f"${calculos['enganche_monto']:,.2f}", True)
-    fila(f"Plazo para Enganche", f"{plan_pago['plazo']} Meses")
-    
-    if plan_pago['plazo'] > 0:
-         fila(f"Mensualidad Enganche", f"${calculos['mensualidad']:,.2f}", True)
+def entrega_de(n):
+    if 23 <= n <= 33:
+        return {"txt": "septiembre 2027", "y": 2027, "m": 9}
+    if (34 <= n <= 44) or (1 <= n <= 11):
+        return {"txt": "marzo 2028", "y": 2028, "m": 3}
+    return {"txt": "septiembre 2028", "y": 2028, "m": 9}
 
-    pdf.ln(5)
-    pdf.set_fill_color(44, 62, 80)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font('Arial', 'B', 11)
-    pdf.cell(0, 10, f"   LIQUIDACION FINAL (FEB 2027): ${calculos['saldo']:,.2f}", 0, 1, 'L', True)
-    pdf.set_text_color(0, 0, 0)
 
-    if plan_pago['plazo'] > 0:
-        pdf.ln(10)
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(0, 8, "Calendario de Pagos del Enganche", 0, 1)
-        
-        pdf.set_font('Arial', 'B', 9)
-        pdf.set_fill_color(230, 230, 230)
-        pdf.cell(20, 7, "#", 1, 0, 'C', True)
-        pdf.cell(90, 7, "Concepto", 1, 0, 'L', True)
-        pdf.cell(45, 7, "Monto", 1, 1, 'R', True)
-        
-        pdf.set_font('Arial', '', 9)
-        mensual = calculos['mensualidad']
-        for i in range(1, plan_pago['plazo'] + 1):
-            pdf.cell(20, 7, str(i), 1, 0, 'C')
-            pdf.cell(90, 7, f"Abono Mensual {i}/{plan_pago['plazo']}", 1, 0, 'L')
-            pdf.cell(45, 7, f"${mensual:,.2f}", 1, 1, 'R')
-            
-    return pdf.output(dest='S').encode('latin-1')
-
-# -----------------------------------------------------------------------------
-# 4. INTERFAZ GRÁFICA
-# -----------------------------------------------------------------------------
-if LOGO_PATH:
-    try:
-        st.sidebar.image(LOGO_PATH, use_container_width=True)
-    except:
-        st.sidebar.warning("No se pudo leer el logo.")
-else:
-    st.sidebar.markdown(f"<h3 style='color:{SIDEBAR_TEXT}'>ANANDA KINO</h3>", unsafe_allow_html=True)
-
-st.markdown("<h1>COTIZADOR ANANDA KINO</h1>", unsafe_allow_html=True)
-st.markdown("### 🏗️ Entrega y Liquidación: Febrero 2027")
-st.markdown("---")
-
-# === LÓGICA HÍBRIDA (Automática + Manual) ===
-df = None
-list_map = None
-
-# 1. Intentar cargar automático
-if CSV_PATH:
-    df, list_map = load_data_from_path(CSV_PATH)
-
-# 2. Si no hay automático, pedir manual
-if df is None:
-    uploaded_file = st.sidebar.file_uploader("📂 Cargar Inventario (CSV)", type=['csv'])
-    if uploaded_file is not None:
-        df, list_map = load_data_from_upload(uploaded_file)
-
-# === SI TENEMOS DATOS, MOSTRAMOS LA APP ===
-if df is not None and list_map:
-    st.sidebar.header("1. PROPIEDAD")
-    sel_lote = st.sidebar.selectbox("Lote", sorted(df['LOTE'].unique()))
-    
-    # Función para ordenar correctamente (Lista 1, Lista 2, Lista 10)
-    def sort_lists(key):
-        try:
-            parts = key.split()
-            if len(parts) > 1 and parts[0] == "Lista":
-                return int(parts[1])
-            return 999
-        except: return 999
-        
-    sorted_lists = sorted(list(list_map.keys()), key=sort_lists)
-    sel_lista = st.sidebar.selectbox("Lista de Precio", sorted_lists)
-    
-    row = df[df['LOTE'] == sel_lote].iloc[0]
-    try:
-        col_real = list_map[sel_lista]
-        val_str = str(row[col_real]).replace('$','').replace(',','')
-        precio_base = float(val_str)
-    except: precio_base = 0.0
-    m2 = float(row['Total Terreno']) if 'Total Terreno' in df.columns else 0.0
-
-    st.sidebar.header("2. CLIENTE")
-    cli_nombre = st.sidebar.text_input("Nombre", "Cliente")
-    cli_tel = st.sidebar.text_input("Teléfono")
-    cli_fecha = st.sidebar.date_input("Fecha", datetime.now())
-    
-    st.sidebar.header("3. PLAN DE ENGANCHE")
-    opciones_enganche = [15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95]
-    opciones_enganche = sorted(list(set(opciones_enganche)))
-    
-    eng_pct = st.sidebar.select_slider("% Enganche Total", options=opciones_enganche, value=30)
-    
-    opciones_plazo = [0] + list(range(1, 14))
-    sel_plazo = st.sidebar.selectbox("Meses para pagar Enganche", opciones_plazo, index=12)
-    
-    # CÁLCULOS
-    desc_final = obtener_descuento_automatico(sel_plazo, eng_pct)
-    monto_desc = precio_base * desc_final
-    precio_final = precio_base - monto_desc
-    
-    monto_enganche_total = precio_final * (eng_pct / 100.0)
-    saldo_contra_entrega = precio_final - monto_enganche_total
-    
-    if sel_plazo > 0:
-        mensualidad_enganche = monto_enganche_total / sel_plazo
-    else:
-        mensualidad_enganche = 0
-
-    # VISUAL
-    c1, c2, c3 = st.columns(3)
-    with c1: st.metric("Precio Lista", f"${precio_base:,.2f}")
-    with c2: st.metric("Descuento", f"{desc_final*100:.2f}%", f"-${monto_desc:,.2f}")
-    with c3: st.metric("PRECIO CIERRE", f"${precio_final:,.2f}")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col_izq, col_der = st.columns([1, 1])
-    with col_izq:
-        st.markdown(f"""
-            <div class="enganche-card">
-                <div class="card-title">ENGANCHE TOTAL ({eng_pct}%)</div>
-                <div class="card-amount blue-text">${monto_enganche_total:,.2f}</div>
-                <div class="card-subtitle cyan-text">A pagar en {sel_plazo} meses</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if sel_plazo > 0:
-            st.markdown(f"#### 📅 Desglose de Mensualidades")
-            html_table = "<table class='payment-table'><tr><th>#</th><th>Concepto</th><th>Monto</th></tr>"
-            for i in range(1, sel_plazo + 1):
-                html_table += f"<tr><td>{i}</td><td>Mensualidad Enganche</td><td><b>${mensualidad_enganche:,.2f}</b></td></tr>"
-            html_table += "</table>"
-            st.markdown(html_table, unsafe_allow_html=True)
-        else:
-            st.info("Pago de Enganche Inmediato (Contado)")
-
-    with col_der:
-        st.markdown(f"""
-            <div class="final-saldo">
-                <div class="card-title">LIQUIDACIÓN FINAL</div>
-                <div class="card-amount dark-text">${saldo_contra_entrega:,.2f}</div>
-                <div class="card-subtitle" style="color:#7f8c8d">Contra Entrega (Febrero 2027)</div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        
-        cli_data = {"nombre": cli_nombre, "telefono": cli_tel, "fecha": str(cli_fecha)}
-        lot_data = {"Lote": sel_lote, "M2": m2}
-        calc_data = {
-            "precio_lista": precio_base, "pct_descuento": desc_final, 
-            "monto_descuento": monto_desc, "precio_final": precio_final, 
-            "enganche_monto": monto_enganche_total, "saldo": saldo_contra_entrega, 
-            "mensualidad": mensualidad_enganche 
+LOTES = {}
+for desde, hasta, priv, terreno, constr, precio, activo, desplante in GRUPOS:
+    for n in range(desde, hasta + 1):
+        LOTES[n] = {
+            "n": n, "priv": priv, "terreno": terreno, "constr": constr,
+            "patio": round(priv - desplante, 2), "precio": precio, "activo": activo,
+            "vendido": n in VENDIDOS, "entrega": entrega_de(n),
         }
-        plan_data = {"pct_enganche": eng_pct, "plazo": sel_plazo}
-        
-        pdf_bytes = create_pdf(cli_data, lot_data, calc_data, plan_data)
-        
-        st.download_button(
-            label="⬇️ DESCARGAR COTIZACIÓN OFICIAL",
-            data=pdf_bytes,
-            file_name=f"Cotizacion_{sel_lote}.pdf",
-            mime="application/pdf"
+
+# Descuento (%) por % de enganche (fila) y plazo en meses 1..13 (índice 0..12)
+MATRIZ = {
+    95: [10.5, 10.5, 10.5, 10, 9.5, 9, 8.5, 8, 7.5, 7, 6.75, 6.5, 6.25],
+    90: [9.5, 9.5, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.75, 5.5, 5.25],
+    80: [8.5, 8.5, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.75, 4.5, 4.25],
+    70: [7.5, 7.5, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.75, 3.5, 3.25],
+    60: [6.5, 6.5, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3, 2.75, 2.5, 2.25],
+    50: [5.5, 5.5, 5.5, 5, 4.5, 4, 3.5, 3, 2.5, 2, 1.75, 1.5, 1.25],
+    40: [4.5, 4.5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.75, 0.5, 0.25],
+    30: [3.5, 3.5, 3.5, 3, 2.5, 2, 1.5, 1, 0.5],
+    25: [2.5, 2.5, 2.5, 2, 1.5, 1, 0.5],
+    20: [2, 2, 2, 1.5, 1, 0.5],
+    15: [1.5, 1.5, 1.5, 1, 0.5],
+}
+ENGANCHES = [15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95]
+
+ACABADOS_TXT = ("Se entrega con pisos, closets, carpintería de cocina con barra de granito, "
+                "horno, campana, parrilla eléctrica y cancelería.")
+
+
+def money(n):
+    return "${:,.0f}".format(n)
+
+
+def pct_txt(p):
+    return f"{p:g}%"
+
+
+def m2_txt(n):
+    return f"{n:g} m²"
+
+
+def fecha_larga(d):
+    return f"{d.day} de {MESES[d.month - 1]} de {d.year}"
+
+
+def obtener_descuento(enganche, plazo):
+    fila = MATRIZ.get(enganche, [])
+    if 1 <= plazo <= len(fila):
+        return fila[plazo - 1]
+    return None
+
+
+# ==============================================================================
+# BARRA LATERAL — DATOS DE LA COTIZACIÓN
+# ==============================================================================
+st.sidebar.image("logo.png", use_container_width=True)
+st.sidebar.markdown("### Datos de la cotización")
+
+cliente = st.sidebar.text_input("Cliente", value="")
+asesor = st.sidebar.text_input("Asesor", value="")
+fecha_cot = st.sidebar.date_input("Fecha", value=date.today(), format="DD/MM/YYYY")
+
+st.sidebar.markdown("---")
+
+lotes_activos = [n for n in sorted(LOTES) if LOTES[n]["activo"]]
+if not lotes_activos:
+    st.error("No hay lotes activos configurados en GRUPOS. Revisa la lista de precios en el código.")
+    st.stop()
+
+
+def fmt_lote(n):
+    l = LOTES[n]
+    txt = l["entrega"]["txt"].replace("septiembre 20", "sep ").replace("marzo 20", "mar ")
+    extra = " (vendido)" if l["vendido"] else ""
+    return f'Lote {n} · {l["priv"]:g} m² · {money(l["precio"])} · {txt}{extra}'
+
+
+lote_sel = st.sidebar.selectbox("Lote", lotes_activos, format_func=fmt_lote, index=0)
+
+col_a, col_b = st.sidebar.columns(2)
+with col_a:
+    enganche_pct = st.selectbox("% de enganche", ENGANCHES, index=ENGANCHES.index(30))
+with col_b:
+    plazo_meses = st.selectbox("Plazo (meses)", list(range(1, 14)), index=5)
+
+# Fecha de liquidación: se llena sola con la entrega del lote seleccionado,
+# y el asesor puede editarla. Se reinicia solo cuando cambia el lote.
+if "last_lote" not in st.session_state:
+    st.session_state.last_lote = None
+if st.session_state.last_lote != lote_sel:
+    st.session_state.fliq = LOTES[lote_sel]["entrega"]["txt"]
+    st.session_state.last_lote = lote_sel
+
+fliq = st.sidebar.text_input("Fecha estimada de liquidación", key="fliq")
+st.sidebar.caption('Se llena con la entrega estimada del lote. Edítala si el acuerdo es distinto.')
+
+lote = LOTES[lote_sel]
+vendido = lote["vendido"]
+
+# ==============================================================================
+# CÁLCULOS
+# ==============================================================================
+descuento_pct = obtener_descuento(enganche_pct, plazo_meses)
+hay_desc = descuento_pct is not None
+descuento_pct_val = descuento_pct or 0.0
+
+precio_lista = lote["precio"]
+monto_descuento = round(precio_lista * descuento_pct_val / 100)
+precio_final = precio_lista - monto_descuento
+monto_enganche = round(precio_final * enganche_pct / 100)
+saldo_final = precio_final - monto_enganche
+
+base_pago = monto_enganche // plazo_meses
+pagos = [base_pago] * plazo_meses
+pagos[-1] = monto_enganche - base_pago * (plazo_meses - 1)
+
+fliq_txt = fliq.strip() or lote["entrega"]["txt"]
+
+# Escalón a la siguiente lista (Lista 3 = Lista 2 + 3%)
+restantes = VENTAS_POR_LISTA - (len(VENDIDOS) - VENDIDOS_AL_INICIO_DE_LISTA)
+mostrar_escalon = 1 <= restantes <= VENTAS_POR_LISTA
+if mostrar_escalon:
+    precio_prox = round(precio_lista * INCREMENTO_SIGUIENTE)
+    final_prox = precio_prox - round(precio_prox * descuento_pct_val / 100)
+
+# ==============================================================================
+# CUERPO PRINCIPAL
+# ==============================================================================
+st.markdown(
+    f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">'
+    f'<h2 style="margin:0;color:{INK}">Cotizador de preventa · Ananda Kino</h2>'
+    f'<span class="badge-lista">{LISTA_BADGE}</span></div>',
+    unsafe_allow_html=True,
+)
+
+if vendido:
+    st.error("⛔ Este lote ya está vendido. Selecciona otro en la barra lateral.")
+
+meta_html = f"""
+<div class="meta-grid">
+  <div><div class="meta-k">Cliente</div><div class="meta-v">{cliente or '—'}</div></div>
+  <div><div class="meta-k">Asesor</div><div class="meta-v">{asesor or '—'}</div></div>
+  <div><div class="meta-k">Fecha</div><div class="meta-v">{fecha_larga(fecha_cot)}</div></div>
+</div>
+"""
+
+pagos_html = "".join(
+    f'<div class="pay-item"><span>Pago {i+1}</span><span>{money(p)}</span></div>'
+    for i, p in enumerate(pagos)
+)
+
+if hay_desc:
+    desc_label = f'Descuento por enganche y plazo <span class="small">{pct_txt(descuento_pct_val)} sobre el precio de lista</span>'
+    desc_val = f'<span class="disc">-{money(monto_descuento)}</span>'
+else:
+    desc_label = 'Descuento por enganche y plazo <span class="small">Esta combinación no tiene descuento en la tabla vigente</span>'
+    desc_val = "$0"
+
+if plazo_meses == 1:
+    resumen_pagos = f"1 pago de {money(pagos[-1])}"
+elif base_pago == pagos[-1]:
+    resumen_pagos = f"{plazo_meses} pagos mensuales de {money(base_pago)}"
+else:
+    resumen_pagos = f"{plazo_meses} pagos mensuales de {money(base_pago)} (el último de {money(pagos[-1])})"
+
+doc_html = f"""
+<div class="doc-card">
+  <div class="doc-head">
+    <img src="data:image/png;base64,{LOGO_B64}" style="height:56px">
+    <div>
+      <div class="kind">Cotización de preventa</div>
+      <div style="text-align:right;margin-top:4px"><span class="badge-lista">{LISTA_BADGE}</span></div>
+      <div class="sub">44 casas · Kino Nuevo</div>
+    </div>
+  </div>
+  {meta_html}
+  <div class="house-box">
+    <div class="house-t">Lote {lote['n']} · 3 recámaras · 2.5 baños · Doble cochera</div>
+    <div class="house-s">Privativo {m2_txt(lote['priv'])} · Construcción {m2_txt(lote['constr'])} · Patio {m2_txt(lote['patio'])}</div>
+    <div class="house-s">Terreno total {m2_txt(lote['terreno'])} · Entrega estimada: {lote['entrega']['txt']}</div>
+    <div class="house-s">{ACABADOS_TXT}</div>
+  </div>
+  <table class="eco">
+    <tr><td>Precio de lista</td><td>{money(precio_lista)}</td></tr>
+    <tr><td>{desc_label}</td><td>{desc_val}</td></tr>
+    <tr class="final"><td>Precio final</td><td>{money(precio_final)}</td></tr>
+    <tr><td>Enganche <span class="small">{enganche_pct}% del precio final</span></td><td>{money(monto_enganche)}</td></tr>
+    <tr><td>Saldo a liquidar</td><td>{money(saldo_final)}</td></tr>
+  </table>
+  <h3 class="sect">Plan de pago del enganche</h3>
+  <p>{resumen_pagos}</p>
+  <div class="pays-grid">{pagos_html}</div>
+  <h3 class="sect">Liquidación del saldo</h3>
+  <p>Fecha estimada de liquidación: <strong>{fliq_txt}</strong></p>
+  <p>El saldo se cubre con recursos propios o con crédito hipotecario a través de brokers aliados. El crédito está sujeto a aprobación de la institución financiera.</p>
+  <div class="fine">{LISTA_TXT}. Precios en pesos mexicanos (MXN). Precios sujetos a cambios sin previo aviso; la lista de precios cambia cada 3 ventas. Cotización informativa, sujeta a disponibilidad de la unidad al formalizar la compra.</div>
+</div>
+"""
+
+col_izq, col_der = st.columns([1, 1.4])
+
+with col_izq:
+    st.markdown("#### Avisos para el asesor")
+    st.caption("Esta columna no se imprime ni se incluye en el PDF.")
+
+    if mostrar_escalon:
+        st.markdown(
+            f'<div class="push-note"><strong>Al cerrar {restantes} '
+            f'{"venta más" if restantes == 1 else "ventas más"}, este lote sube a {money(precio_prox)}</strong> '
+            f'(+{money(precio_prox - precio_lista)} en precio de lista).<br>'
+            f'Con esta misma forma de pago, el precio final pasaría de {money(precio_final)} a {money(final_prox)} '
+            f'(+{money(final_prox - precio_final)}).</div>',
+            unsafe_allow_html=True,
         )
 
-else:
-    st.info("👈 Esperando archivo de inventario... (Carga 'inventario.csv' en GitHub para modo automático)")
+    if not hay_desc:
+        st.markdown(
+            '<div class="warn-note">Esta combinación de enganche y plazo no tiene descuento en la '
+            'tabla vigente. Confírmala antes de ofrecerla.</div>',
+            unsafe_allow_html=True,
+        )
+
+    fin = datetime(fecha_cot.year, fecha_cot.month, 1)
+    mm = fin.month - 1 + plazo_meses
+    fin_y = fin.year + mm // 12
+    fin_m = mm % 12 + 1
+    fin_key = fin_y * 12 + fin_m
+    ent_key = lote["entrega"]["y"] * 12 + lote["entrega"]["m"]
+    fin_txt = f"{MESES[fin_m - 1]} {fin_y}"
+    if fin_key > ent_key:
+        st.markdown(
+            f'<div class="warn-note">Con pagos mensuales desde la fecha de la cotización, el enganche '
+            f'terminaría en {fin_txt}, después de la entrega estimada de este lote ({lote["entrega"]["txt"]}). '
+            f'Reduce el plazo o confirma el esquema con dirección comercial.</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<div class="info-note">El enganche termina hacia {fin_txt}, antes o en la entrega estimada '
+            f'del lote ({lote["entrega"]["txt"]}).</div>',
+            unsafe_allow_html=True,
+        )
+
+    faltan = []
+    if not cliente.strip():
+        faltan.append("cliente")
+    if not asesor.strip():
+        faltan.append("asesor")
+    puede_descargar = not faltan and not vendido
+
+    if faltan:
+        st.info("Para descargar falta: " + " y ".join(faltan) + ".")
+
+with col_der:
+    st.markdown(doc_html, unsafe_allow_html=True)
+
+
+# ==============================================================================
+# GENERADOR DE PDF
+# ==============================================================================
+class CotizacionPDF(FPDF):
+    pass
+
+
+def nombre_archivo():
+    import re
+    c = re.sub(r"[^A-Za-z0-9]+", "_", cliente.strip()).strip("_")
+    return f"Cotizacion_Ananda_Kino_Lote{lote['n']}" + (f"_{c}" if c else "") + ".pdf"
+
+
+def crear_pdf():
+    pdf = CotizacionPDF(format="Letter")
+    pdf.add_page()
+    W = pdf.w
+    M = 18
+    R = W - M
+
+    def hexrgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    blue = hexrgb(BRAND)
+    logoc = hexrgb(LOGO_C)
+    ink = hexrgb(INK)
+    gray = hexrgb(MUTED)
+    line = hexrgb(LINE)
+    soft = hexrgb(SOFT)
+
+    # --- Encabezado con logo + insignia de lista ---
+    pdf.image("logo.png", M, 9, 54)
+    pdf.set_text_color(*ink)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_xy(M, 10)
+    pdf.cell(R - M, 6, "COTIZACION DE PREVENTA", align="R")
+    pdf.set_fill_color(*blue)
+    pdf.set_xy(R - 56, 16)
+    pdf.set_draw_color(*blue)
+    pdf.rect(R - 56, 16, 56, 9.5, style="F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_xy(R - 56, 18.6)
+    pdf.cell(56, 5, "LISTA 2 - SEP 2026", align="C")
+    pdf.set_text_color(*gray)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_xy(M, 26)
+    pdf.cell(R - M, 5, "44 casas - Kino Nuevo, Bahia de Kino, Sonora - www.anandakino.mx", align="R")
+    pdf.set_draw_color(*logoc)
+    pdf.set_line_width(0.8)
+    pdf.line(M, 31, R, 31)
+
+    # --- Datos del cliente ---
+    y = 44
+    cols = [("CLIENTE", cliente or "-", M), ("ASESOR", asesor or "-", M + 78), ("FECHA", fecha_larga(fecha_cot), M + 128)]
+    for k, v, x in cols:
+        pdf.set_xy(x, y)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*gray)
+        pdf.cell(46, 5, k)
+        pdf.set_xy(x, y + 6)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(*ink)
+        pdf.cell(72 if k == "CLIENTE" else 46, 6, str(v)[:38])
+
+    # --- Casa ---
+    y = 58
+    pdf.set_fill_color(*soft)
+    pdf.rect(M, y, R - M, 38, style="F")
+    pdf.set_xy(M + 5, y + 4)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*ink)
+    pdf.cell(0, 6, f"Lote {lote['n']} - 3 recamaras - 2.5 banos - Doble cochera")
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.set_text_color(*gray)
+    pdf.set_xy(M + 5, y + 11)
+    pdf.cell(0, 5, f"Privativo {lote['priv']:g} m2 - Construccion {lote['constr']:g} m2 - Patio {lote['patio']:g} m2")
+    pdf.set_xy(M + 5, y + 17)
+    pdf.cell(0, 5, f"Terreno total {lote['terreno']:g} m2 - Entrega estimada: {lote['entrega']['txt']}")
+    pdf.set_xy(M + 5, y + 23)
+    pdf.multi_cell(R - M - 10, 5, "Se entrega con pisos, closets, carpinteria de cocina con barra de "
+                                    "granito, horno, campana, parrilla electrica y canceleria.")
+
+    # --- Condiciones económicas ---
+    y = 106
+    pdf.set_xy(M, y)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*blue)
+    pdf.cell(0, 6, "CONDICIONES ECONOMICAS - LISTA DE PRECIOS 2")
+    y += 3
+    filas = [
+        ("Precio de lista", money(precio_lista), False),
+        (f"Descuento por enganche y plazo ({pct_txt(descuento_pct_val)})" if hay_desc
+         else "Descuento por enganche y plazo (sin descuento en esta combinacion)",
+         ("-" + money(monto_descuento)) if hay_desc else "$0", False),
+        ("Precio final", money(precio_final), True),
+        (f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche), False),
+        ("Saldo a liquidar", money(saldo_final), False),
+    ]
+    rh = 9
+    for i, (label, val, strong) in enumerate(filas):
+        top = y + i * rh
+        if strong:
+            pdf.set_fill_color(*soft)
+            pdf.rect(M, top, R - M, rh, style="F")
+        pdf.set_draw_color(*line)
+        pdf.set_line_width(0.3)
+        pdf.line(M, top + rh, R, top + rh)
+        pdf.set_font("Helvetica", "B" if strong else "", 12 if strong else 10.5)
+        pdf.set_text_color(*ink)
+        pdf.set_xy(M + 2, top + 1.5)
+        pdf.cell(R - M - 60, rh - 2, label)
+        pdf.set_xy(R - 60, top + 1.5)
+        pdf.cell(58, rh - 2, val, align="R")
+    y += len(filas) * rh + 10
+
+    # --- Plan de pago ---
+    pdf.set_xy(M, y)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*blue)
+    pdf.cell(0, 6, "PLAN DE PAGO DEL ENGANCHE")
+    y += 6
+    pdf.set_xy(M, y)
+    pdf.set_font("Helvetica", "", 10.5)
+    pdf.set_text_color(*ink)
+    pdf.cell(0, 6, resumen_pagos)
+    y += 5
+
+    ncols = 3
+    cw = (R - M) / ncols
+    ch = 8
+    for i, p in enumerate(pagos):
+        col = i % ncols
+        row = i // ncols
+        cx = M + col * cw
+        cy = y + row * ch
+        pdf.set_draw_color(*line)
+        pdf.set_line_width(0.3)
+        pdf.rect(cx + 0.5, cy, cw - 3, ch - 1.5)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*gray)
+        pdf.set_xy(cx + 3, cy + 1.2)
+        pdf.cell(cw - 10, ch - 3, f"Pago {i + 1}")
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(*ink)
+        pdf.set_xy(cx + 3, cy + 1.2)
+        pdf.cell(cw - 8, ch - 3, money(p), align="R")
+    import math
+    y += math.ceil(len(pagos) / ncols) * ch + 8
+
+    # --- Liquidación ---
+    pdf.set_xy(M, y)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*blue)
+    pdf.cell(0, 6, "LIQUIDACION DEL SALDO")
+    y += 6
+    pdf.set_xy(M, y)
+    pdf.set_font("Helvetica", "", 10.5)
+    pdf.set_text_color(*ink)
+    pdf.multi_cell(R - M, 5.5, f"Saldo de {money(saldo_final)}. Fecha estimada de liquidacion: {fliq_txt}.")
+    y = pdf.get_y() + 2
+    pdf.set_xy(M, y)
+    pdf.multi_cell(R - M, 5, "El saldo se cubre con recursos propios o con credito hipotecario a "
+                              "traves de brokers aliados. El credito esta sujeto a aprobacion de la "
+                              "institucion financiera.")
+
+    # --- Pie (posición dinámica: con enganches largos el contenido de arriba crece) ---
+    fy = max(252, pdf.get_y() + 6)
+    pdf.set_draw_color(*line)
+    pdf.line(M, fy, R, fy)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(*gray)
+    pdf.set_xy(M, fy + 4)
+    pdf.multi_cell(R - M, 4, f"{LISTA_TXT}. Precios en pesos mexicanos (MXN). Precios sujetos a cambios "
+                              "sin previo aviso; la lista de precios cambia cada 3 ventas. Cotizacion "
+                              "informativa, sujeta a disponibilidad de la unidad al formalizar la compra.")
+    pdf.set_xy(M, pdf.get_y() + 2)
+    pdf.cell(0, 4, "www.anandakino.mx - @anandakinomx")
+
+    return bytes(pdf.output())
+
+
+st.markdown("---")
+pdf_bytes = crear_pdf() if puede_descargar else None
+st.download_button(
+    "📥 Descargar cotización en PDF",
+    data=pdf_bytes if pdf_bytes else b"",
+    file_name=nombre_archivo(),
+    mime="application/pdf",
+    disabled=not puede_descargar,
+    use_container_width=True,
+)
