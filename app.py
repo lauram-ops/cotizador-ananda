@@ -449,84 +449,38 @@ def crear_pdf():
     pdf.multi_cell(R - M - 10, 5, "Se entrega con pisos, closets, carpinteria de cocina con barra de "
                                     "granito, horno, campana, parrilla electrica y canceleria.")
 
-    # --- Condiciones económicas: tarjetas + escalón (estilo de la primera propuesta) ---
-    red = hexrgb("#DC3545")
-    green = hexrgb("#28A745")
-    gold = hexrgb("#B8860B")
-    cream = hexrgb("#FFFCF2")
-
+    # --- Condiciones económicas ---
     y = 106
     pdf.set_xy(M, y)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*blue)
     pdf.cell(0, 6, "CONDICIONES ECONOMICAS - LISTA DE PRECIOS 2")
-    y += 9
-
-    gap = 4
-    cw3 = (R - M - 2 * gap) / 3
-    ch3 = 20
-    xs = [M, M + cw3 + gap, M + 2 * (cw3 + gap)]
-
-    def tarjeta(x, label, valor, color_valor, fuente_valor=13, borde=None):
-        pdf.set_fill_color(*soft)
-        pdf.rect(x, y, cw3, ch3, style="F")
-        if borde:
-            pdf.set_draw_color(*borde)
-            pdf.set_line_width(0.7)
-            pdf.rect(x, y, cw3, ch3, style="D")
-        pdf.set_xy(x + 4, y + 3.5)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(*gray)
-        pdf.cell(cw3 - 8, 4, label)
-        pdf.set_xy(x + 4, y + 11)
-        pdf.set_font("Helvetica", "B", fuente_valor)
-        pdf.set_text_color(*color_valor)
-        pdf.cell(cw3 - 8, 8, valor)
-
-    tarjeta(xs[0], "PRECIO DE LISTA", money(precio_lista), ink, 12)
-    label2 = f"TU DESCUENTO ({descuento_pct_val:g}%)" if hay_desc else "SIN DESCUENTO"
-    tarjeta(xs[1], label2, ("-" + money(monto_descuento)) if hay_desc else "$0", red, 12)
-    tarjeta(xs[2], "PRECIO FINAL", money(precio_final), green, 14, borde=green)
-
-    y += ch3 + 2
-
-    if mostrar_escalon:
-        eb_h = 12
-        pdf.set_fill_color(*cream)
-        pdf.rect(M, y, R - M, eb_h, style="F")
-        pdf.set_draw_color(*gold)
-        pdf.set_line_width(0.6)
-        pdf.rect(M, y, R - M, eb_h, style="D")
-        restantes_txt = "venta mas" if restantes == 1 else "ventas mas"
-        pdf.set_xy(M + 5, y + 2)
-        pdf.set_font("Helvetica", "B", 10.5)
-        pdf.set_text_color(*gold)
-        pdf.cell(R - M - 10, 5.5, f"Al cerrar {restantes} {restantes_txt}, este lote sube a {money(precio_prox)}")
-        pdf.set_xy(M + 5, y + 7)
-        pdf.set_font("Helvetica", "", 8.5)
-        pdf.set_text_color(*ink)
-        pdf.cell(R - M - 10, 5, f"Con esta misma forma de pago, el precio final pasaria a {money(final_prox)}.")
-        y += eb_h + 2
-    else:
-        y += 2
-
-    rh = 9
-    filas2 = [
-        (f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche)),
-        ("Saldo a liquidar", money(saldo_final)),
+    y += 3
+    filas = [
+        ("Precio de lista", money(precio_lista), False),
+        (f"Descuento por enganche y plazo ({pct_txt(descuento_pct_val)})" if hay_desc
+         else "Descuento por enganche y plazo (sin descuento en esta combinacion)",
+         ("-" + money(monto_descuento)) if hay_desc else "$0", False),
+        ("Precio final", money(precio_final), True),
+        (f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche), False),
+        ("Saldo a liquidar", money(saldo_final), False),
     ]
-    for i, (label, val) in enumerate(filas2):
+    rh = 9
+    for i, (label, val, strong) in enumerate(filas):
         top = y + i * rh
+        if strong:
+            pdf.set_fill_color(*soft)
+            pdf.rect(M, top, R - M, rh, style="F")
         pdf.set_draw_color(*line)
         pdf.set_line_width(0.3)
         pdf.line(M, top + rh, R, top + rh)
-        pdf.set_font("Helvetica", "", 10.5)
+        pdf.set_font("Helvetica", "B" if strong else "", 12 if strong else 10.5)
         pdf.set_text_color(*ink)
         pdf.set_xy(M + 2, top + 1.5)
         pdf.cell(R - M - 60, rh - 2, label)
         pdf.set_xy(R - 60, top + 1.5)
         pdf.cell(58, rh - 2, val, align="R")
-    y += len(filas2) * rh + 5
+    y += len(filas) * rh + 10
 
     # --- Plan de pago ---
     pdf.set_xy(M, y)
@@ -540,7 +494,7 @@ def crear_pdf():
     pdf.cell(0, 6, resumen_pagos)
     y += 5
 
-    ncols = 4
+    ncols = 3
     cw = (R - M) / ncols
     ch = 8
     for i, p in enumerate(pagos):
@@ -560,7 +514,7 @@ def crear_pdf():
         pdf.set_xy(cx + 3, cy + 1.2)
         pdf.cell(cw - 8, ch - 3, money(p), align="R")
     import math
-    y += math.ceil(len(pagos) / ncols) * ch + 6
+    y += math.ceil(len(pagos) / ncols) * ch + 8
 
     # --- Liquidación ---
     pdf.set_xy(M, y)
