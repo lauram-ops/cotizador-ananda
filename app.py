@@ -14,7 +14,6 @@ Estructura del repositorio esperada:
 import base64
 from datetime import date, datetime
 
-import plotly.graph_objects as go
 import streamlit as st
 from fpdf import FPDF
 
@@ -549,84 +548,7 @@ def crear_pdf():
     return bytes(pdf.output())
 
 
-# ==============================================================================
-# ARGUMENTOS DE VENTA — SOLO PANTALLA (no se imprime ni se incluye en el PDF)
-# ==============================================================================
 st.markdown("---")
-with st.expander("📊 Argumentos de venta para la cita (solo pantalla, no se imprime)", expanded=True):
-    st.caption("Esta sección es para apoyar la conversación en la cita. No forma parte del PDF que se lleva el cliente.")
-    col_mkt, col_plus = st.columns(2)
-
-    # --- Ananda vs el mercado (precio por m² de construcción) ---
-    with col_mkt:
-        st.markdown("#### Ananda vs. el mercado")
-        precio_m2_ananda = precio_lista / lote["constr"]
-        PROMEDIO_MERCADO_M2 = 43589  # de la presentación del 12-ago-2026 (dato fijo, no recalculado)
-        competencia = [
-            ("Ananda", precio_m2_ananda, True),
-            ("Altarena Zaah", 45643, False),
-            ("Altarena Hail", 45643, False),
-            ("Altarena Hamac", 45455, False),
-            ("Azaluma", 45038, False),
-            ("Caay MC", 38393, False),
-            ("Caay MA", 38679, False),
-            ("Caay MB", 38776, False),
-            ("Hax 1", 48571, False),
-            ("Hax 2", 48571, False),
-            ("Marenza A", 60347, False),
-            ("Marenza B", 44784, False),
-            ("P. Península", 40762, False),
-        ]
-        fig_mkt = go.Figure()
-        fig_mkt.add_bar(
-            x=[c[0] for c in competencia],
-            y=[c[1] for c in competencia],
-            marker_color=["#28A745" if c[2] else "#E07B4F" for c in competencia],
-            text=[f"${c[1]:,.0f}" for c in competencia],
-            textposition="outside",
-        )
-        fig_mkt.add_hline(
-            y=PROMEDIO_MERCADO_M2, line_dash="dot", line_color="#B3261E",
-            annotation_text=f"Promedio mercado ${PROMEDIO_MERCADO_M2:,.0f}/m²",
-            annotation_position="top left",
-        )
-        fig_mkt.update_layout(height=380, margin=dict(l=10, r=10, t=30, b=10),
-                               yaxis_title="$/m² de construcción", showlegend=False)
-        st.plotly_chart(fig_mkt, use_container_width=True)
-        st.caption(f"Precio por m² de este lote (Lista 2, sobre precio de lista): {money(precio_m2_ananda)}. "
-                   "Datos de la competencia: presentación interna del 12-ago-2026, confirmados vigentes.")
-
-    # --- Proyección de plusvalía: Lista 2 (hoy) -> Lista 10 (44/44 vendidas) ---
-    with col_plus:
-        st.markdown("#### Proyección de plusvalía (Lista 2 → Lista 10)")
-        listas_restantes = 8  # de Lista 2 a Lista 10
-        precios_escalon = [precio_lista]
-        p = precio_lista
-        for _ in range(listas_restantes):
-            p = round(p * INCREMENTO_SIGUIENTE)
-            precios_escalon.append(p)
-        etiquetas = [f"Lista {i + 2}" for i in range(len(precios_escalon))]
-
-        fig_plus = go.Figure()
-        fig_plus.add_bar(
-            x=etiquetas, y=precios_escalon,
-            marker_color=["#4D6D80"] + ["#9BB4C2"] * (len(precios_escalon) - 1),
-            text=[money(v) for v in precios_escalon], textposition="outside",
-        )
-        fig_plus.update_layout(height=380, margin=dict(l=10, r=10, t=30, b=10),
-                                yaxis_title="Precio de lista", showlegend=False)
-        st.plotly_chart(fig_plus, use_container_width=True)
-
-        ganancia = precios_escalon[-1] - precios_escalon[0]
-        pct = ganancia / precios_escalon[0] * 100
-        st.metric(
-            "Precio en Lista 10 (cuando se vendan las 44 casas)",
-            money(precios_escalon[-1]),
-            f"+{money(ganancia)} ({pct:.1f}%) vs. hoy",
-        )
-        st.caption("Con base en el incremento real de 3% entre cada lista de precios (documentado en la lista "
-                   "oficial), no en una proyección de mercado ni en supuestos de renta.")
-
 pdf_bytes = crear_pdf() if puede_descargar else None
 st.download_button(
     "📥 Descargar cotización en PDF",
