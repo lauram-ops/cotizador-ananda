@@ -34,8 +34,9 @@ SOFT = "#E9F0F3"
 INK = "#16232C"
 MUTED = "#5C6D78"
 LINE = "#DDE5EA"
-BAD = "#B3261E"
-GOOD = "#1E8E3E"
+DARK = "#2E4B5E"  # énfasis fuerte (precio final, cifras clave)
+MED = "#7F9CAB"   # énfasis medio
+LIGHT = "#B7C7CE" # barras secundarias / comparación
 
 st.markdown(f"""
 <style>
@@ -54,9 +55,9 @@ st.markdown(f"""
 }}
 .fin-label {{ font-size:11px; color:{MUTED}; text-transform:uppercase; letter-spacing:.8px; margin-bottom:5px; }}
 .fin-val {{ font-size:19px; font-weight:900; color:{BRAND}; }}
-.fin-discount {{ font-size:17px; font-weight:700; color:{BAD}; }}
-.fin-final {{ font-size:20px; font-weight:900; color:{GOOD}; }}
-.fin-future {{ font-size:19px; font-weight:900; color:#B8860B; }}
+.fin-discount {{ font-size:17px; font-weight:700; color:{INK}; }}
+.fin-final {{ font-size:20px; font-weight:900; color:{DARK}; }}
+.fin-future {{ font-size:19px; font-weight:900; color:{MED}; }}
 .house-box {{ background:{SOFT}; border-radius:10px; padding:14px 16px; margin-bottom:10px; }}
 .house-t {{ font-weight:700; color:{INK}; }}
 .house-s {{ font-size:13px; color:{MUTED}; margin-top:3px; }}
@@ -270,7 +271,7 @@ with c2:
     st.markdown(f'<div class="fin-card"><div class="fin-label">{label}</div>'
                 f'<div class="fin-discount">-{money(monto_descuento)}</div></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown(f'<div class="fin-card" style="border:2px solid {GOOD}"><div class="fin-label">Precio final</div>'
+    st.markdown(f'<div class="fin-card" style="border:2px solid {DARK}"><div class="fin-label">Precio final</div>'
                 f'<div class="fin-final">{money(precio_final)}</div></div>', unsafe_allow_html=True)
 with c4:
     st.markdown(f'<div class="fin-card"><div class="fin-label">Precio en Lista 10 (44/44 vendidas)</div>'
@@ -284,10 +285,10 @@ try:
     import plotly.graph_objects as go
     fig = go.Figure(go.Bar(
         x=[r[0] for r in comp_rows], y=[r[1] for r in comp_rows],
-        marker_color=[GOOD if r[0] == "Ananda" else "#E07B4F" for r in comp_rows],
+        marker_color=[DARK if r[0] == "Ananda" else LIGHT for r in comp_rows],
         text=[f"${r[1]:,.0f}" for r in comp_rows], textposition="outside",
     ))
-    fig.add_hline(y=PROMEDIO_MERCADO_M2, line_dash="dot", line_color=BAD,
+    fig.add_hline(y=PROMEDIO_MERCADO_M2, line_dash="dot", line_color=MUTED,
                   annotation_text=f"Promedio mercado {money(PROMEDIO_MERCADO_M2)}/m²")
     fig.update_layout(height=340, margin=dict(l=10, r=10, t=30, b=10), yaxis_title="$/m²", showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
@@ -303,7 +304,7 @@ try:
     import plotly.graph_objects as go
     fig2 = go.Figure(go.Bar(
         x=listas_lbl, y=listas_val,
-        marker_color=[BRAND] + ["#9BB4C2"] * (len(listas_val) - 1),
+        marker_color=[DARK] + [LIGHT] * (len(listas_val) - 1),
         text=[money(v) for v in listas_val], textposition="outside",
     ))
     fig2.update_layout(height=340, margin=dict(l=10, r=10, t=30, b=10), yaxis_title="Precio de lista", showlegend=False)
@@ -380,8 +381,8 @@ def crear_pdf():
     gray = hexrgb(MUTED)
     line = hexrgb(LINE)
     soft = hexrgb(SOFT)
-    bad = hexrgb(BAD)
-    good = hexrgb(GOOD)
+    dark = hexrgb(DARK)
+    med = hexrgb(MED)
 
     def encabezado(subtitulo):
         pdf.image("logo.png", M, 9, 50)
@@ -471,8 +472,8 @@ def crear_pdf():
     fila("Precio de lista", money(precio_lista))
     desc_lbl = f"Descuento por enganche y plazo ({descuento_pct_val:g}%)" if hay_desc else \
         "Descuento por enganche y plazo (sin descuento en esta combinacion)"
-    fila(desc_lbl, ("-" + money(monto_descuento)) if hay_desc else "$0", color=bad)
-    fila("Precio final", money(precio_final), strong=True, color=good)
+    fila(desc_lbl, ("-" + money(monto_descuento)) if hay_desc else "$0")
+    fila("Precio final", money(precio_final), strong=True, color=dark)
     fila(f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche))
     fila("Saldo a liquidar", money(saldo_final))
 
@@ -500,7 +501,7 @@ def crear_pdf():
     pdf.set_font("Helvetica", "", 10)
     for nombre, valor in comp_rows:
         strong = nombre == "Ananda"
-        fila(nombre, f"${valor:,.0f}/m2", strong=strong, color=good if strong else None)
+        fila(nombre, f"${valor:,.0f}/m2", strong=strong, color=dark if strong else None)
     pdf.ln(2)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*gray)
@@ -512,10 +513,10 @@ def crear_pdf():
     titulo("PROYECCION DE PLUSVALIA (LISTA 2 A LISTA 10)")
     pdf.set_font("Helvetica", "", 10)
     for lbl, val in zip(listas_lbl, listas_val):
-        fila(lbl, money(val), strong=(lbl == "Lista 10"), color=good if lbl == "Lista 10" else None)
+        fila(lbl, money(val), strong=(lbl == "Lista 10"), color=dark if lbl == "Lista 10" else None)
     pdf.ln(2)
     pdf.set_font("Helvetica", "B", 10.5)
-    pdf.set_text_color(*good)
+    pdf.set_text_color(*dark)
     pdf.cell(0, 6, f"Plusvalia estimada a Lista 10: +{money(plusvalia_lista10)} (+{pct_plus:.1f}%)",
              new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
@@ -527,8 +528,8 @@ def crear_pdf():
     pdf.set_font("Helvetica", "", 10)
     fila(f"Tarifa {money(tarifa_noche)}/noche - Ocupacion {ocupacion_pct}%", "")
     fila("Ingreso bruto anual (estimado)", money(ingreso_bruto))
-    fila(f"Gastos (admin {admin_pct}% + fijos)", f"-{money(total_gastos)}", color=bad)
-    fila("Utilidad neta (estimada)", money(utilidad_neta), strong=True, color=good)
+    fila(f"Gastos (admin {admin_pct}% + fijos)", f"-{money(total_gastos)}")
+    fila("Utilidad neta (estimada)", money(utilidad_neta), strong=True, color=dark)
     pdf.ln(2)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*gray)
