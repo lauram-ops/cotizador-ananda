@@ -227,7 +227,9 @@ descuento_pct = obtener_descuento(enganche_pct, plazo_meses)
 hay_desc = descuento_pct is not None
 descuento_pct_val = descuento_pct or 0.0
 
-precio_lista = lote["precio"] + (ESTANCIA_PRECIO if con_estancia else 0)
+precio_casa = lote["precio"]  # precio de lista oficial, el que sube cada 3 ventas
+monto_estancia = ESTANCIA_PRECIO if con_estancia else 0
+precio_lista = precio_casa + monto_estancia  # base sobre la que se calcula el descuento
 constr_mostrada = lote["constr"] + (ESTANCIA_CONSTR_EXTRA if con_estancia else 0)
 monto_descuento = round(precio_lista * descuento_pct_val / 100)
 precio_final = precio_lista - monto_descuento
@@ -244,7 +246,8 @@ fliq_txt = fliq.strip() or lote["entrega"]["txt"]
 restantes = VENTAS_POR_LISTA - (len(VENDIDOS) - VENDIDOS_AL_INICIO_DE_LISTA)
 mostrar_escalon = 1 <= restantes <= VENTAS_POR_LISTA
 if mostrar_escalon:
-    precio_prox = round(precio_lista * INCREMENTO_SIGUIENTE)
+    precio_casa_prox = round(precio_casa * INCREMENTO_SIGUIENTE)  # la estancia no escala con la lista
+    precio_prox = precio_casa_prox + monto_estancia
     final_prox = precio_prox - round(precio_prox * descuento_pct_val / 100)
 
 # ==============================================================================
@@ -274,7 +277,8 @@ pagos_html = "".join(
 )
 
 if hay_desc:
-    desc_label = f'Descuento por enganche y plazo <span class="small">{pct_txt(descuento_pct_val)} sobre el precio de lista</span>'
+    base_desc_txt = "el subtotal (casa + estancia)" if con_estancia else "el precio de lista"
+    desc_label = f'Descuento por enganche y plazo <span class="small">{pct_txt(descuento_pct_val)} sobre {base_desc_txt}</span>'
     desc_val = f'<span class="disc">-{money(monto_descuento)}</span>'
 else:
     desc_label = 'Descuento por enganche y plazo <span class="small">Esta combinación no tiene descuento en la tabla vigente</span>'
@@ -305,7 +309,9 @@ doc_html = f"""
     <div class="house-s">{ACABADOS_TXT}</div>
   </div>
   <table class="eco">
-    <tr><td>Precio de lista{' <span class="small">(incluye estancia)</span>' if con_estancia else ''}</td><td>{money(precio_lista)}</td></tr>
+    <tr><td>Precio de lista</td><td>{money(precio_casa)}</td></tr>
+    {'<tr><td>+ Estancia <span class="small">Prototipo B, planta alta</span></td><td>' + money(monto_estancia) + '</td></tr>' if con_estancia else ''}
+    {'<tr style="background:var(--soft); font-weight:700"><td>Subtotal (casa + estancia)</td><td>' + money(precio_lista) + '</td></tr>' if con_estancia else ''}
     <tr><td>{desc_label}</td><td>{desc_val}</td></tr>
     <tr class="final"><td>Precio final</td><td>{money(precio_final)}</td></tr>
     <tr><td>Enganche <span class="small">{enganche_pct}% del precio final</span></td><td>{money(monto_enganche)}</td></tr>
@@ -484,8 +490,9 @@ def crear_pdf():
 
     gap = 4
     cw3 = (R - M - 2 * gap) / 3
-    ch3 = 20
+    ch3 = 25 if con_estancia else 20
     xs = [M, M + cw3 + gap, M + 2 * (cw3 + gap)]
+    val_y = 15 if con_estancia else 11  # centra mejor el valor cuando la tarjeta crece
 
     def tarjeta(x, label, valor, color_valor, fuente_valor=13, borde=None):
         pdf.set_fill_color(*soft)
@@ -498,15 +505,34 @@ def crear_pdf():
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*gray)
         pdf.cell(cw3 - 8, 4, label)
-        pdf.set_xy(x + 4, y + 11)
+        pdf.set_xy(x + 4, y + val_y)
         pdf.set_font("Helvetica", "B", fuente_valor)
         pdf.set_text_color(*color_valor)
         pdf.cell(cw3 - 8, 8, valor)
 
-    label1 = "PRECIO DE LISTA (con estancia)" if con_estancia else "PRECIO DE LISTA"
-    tarjeta(xs[0], label1, money(precio_lista), ink, 12)
+    if con_estancia:
+        # Tarjeta 1 desglosada: casa + estancia = subtotal (antes del descuento)
+        x0 = xs[0]
+        pdf.set_fill_color(*soft)
+        pdf.rect(x0, y, cw3, ch3, style="F")
+        pdf.set_xy(x0 + 4, y + 3)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_text_color(*gray)
+        pdf.cell(cw3 - 8, 3.5, "PRECIO DE LISTA")
+        pdf.set_xy(x0 + 4, y + 7.5)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*ink)
+        pdf.cell(cw3 - 8, 4, f"Casa: {money(precio_casa)}")
+        pdf.set_xy(x0 + 4, y + 12)
+        pdf.cell(cw3 - 8, 4, f"+ Estancia: {money(monto_estancia)}")
+        pdf.set_xy(x0 + 4, y + 17.5)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(cw3 - 8, 6, f"= {money(precio_lista)}")
+    else:
+        tarjeta(xs[0], "PRECIO DE LISTA", money(precio_lista), ink, 12)
+
     label2 = f"TU DESCUENTO ({descuento_pct_val:g}%)" if hay_desc else "SIN DESCUENTO"
-    tarjeta(xs[1], label2, ("-" + money(monto_descuento)) if hay_desc else "$0", red, 12)
+    tarjeta(xs[1], label2, ("-" + money(monto_descuento)) if hay_desc else "$0", red, 11 if con_estancia else 12)
     tarjeta(xs[2], "PRECIO FINAL", money(precio_final), green, 14, borde=green)
 
     y += ch3 + 2
