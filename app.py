@@ -136,6 +136,11 @@ ENGANCHES = [15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95]
 ACABADOS_TXT = ("Se entrega con pisos, closets, carpintería de cocina con barra de granito, "
                 "horno, campana, parrilla eléctrica y cancelería.")
 
+# Estancia (Prototipo B, Memorándum Ananda): agrega recámara/estancia en planta alta.
+# Solo disponible para lotes de 161 y 147 m² privativos (no para los de 133 m², lotes 34-37).
+ESTANCIA_PRECIO = 450000
+ESTANCIA_CONSTR_EXTRA = 18.15  # 146.95 - 128.80 m² (planta baja / patio no cambian)
+
 
 def money(n):
     return "${:,.0f}".format(n)
@@ -186,6 +191,17 @@ def fmt_lote(n):
 
 
 lote_sel = st.sidebar.selectbox("Lote", lotes_activos, format_func=fmt_lote, index=0)
+lote = LOTES[lote_sel]
+vendido = lote["vendido"]
+
+estancia_disponible = lote["priv"] in (147, 161)
+if estancia_disponible:
+    con_estancia = st.sidebar.checkbox(f"Agregar estancia en planta alta (+{money(ESTANCIA_PRECIO)})",
+                                        key="con_estancia")
+    st.sidebar.caption("Prototipo B: +18.15 m² de construcción en planta alta. El patio no cambia.")
+else:
+    con_estancia = False
+    st.sidebar.caption("La estancia no está disponible para este lote (prototipo C, lotes 34-37).")
 
 col_a, col_b = st.sidebar.columns(2)
 with col_a:
@@ -204,9 +220,6 @@ if st.session_state.last_lote != lote_sel:
 fliq = st.sidebar.text_input("Fecha estimada de liquidación", key="fliq")
 st.sidebar.caption('Se llena con la entrega estimada del lote. Edítala si el acuerdo es distinto.')
 
-lote = LOTES[lote_sel]
-vendido = lote["vendido"]
-
 # ==============================================================================
 # CÁLCULOS
 # ==============================================================================
@@ -214,7 +227,8 @@ descuento_pct = obtener_descuento(enganche_pct, plazo_meses)
 hay_desc = descuento_pct is not None
 descuento_pct_val = descuento_pct or 0.0
 
-precio_lista = lote["precio"]
+precio_lista = lote["precio"] + (ESTANCIA_PRECIO if con_estancia else 0)
+constr_mostrada = lote["constr"] + (ESTANCIA_CONSTR_EXTRA if con_estancia else 0)
 monto_descuento = round(precio_lista * descuento_pct_val / 100)
 precio_final = precio_lista - monto_descuento
 monto_enganche = round(precio_final * enganche_pct / 100)
@@ -285,13 +299,13 @@ doc_html = f"""
   </div>
   {meta_html}
   <div class="house-box">
-    <div class="house-t">Lote {lote['n']} · 3 recámaras · 2.5 baños · Doble cochera</div>
-    <div class="house-s">Privativo {m2_txt(lote['priv'])} · Construcción {m2_txt(lote['constr'])} · Patio {m2_txt(lote['patio'])}</div>
-    <div class="house-s">Terreno total {m2_txt(lote['terreno'])} · Entrega estimada: {lote['entrega']['txt']}</div>
+    <div class="house-t">Lote {lote['n']} · 3 recámaras · 2.5 baños · Doble cochera{' + Estancia' if con_estancia else ''}</div>
+    <div class="house-s">Privativo {m2_txt(lote['priv'])} · Construcción {m2_txt(constr_mostrada)} · Patio {m2_txt(lote['patio'])}</div>
+    <div class="house-s">Terreno total {m2_txt(lote['terreno'])} · Entrega estimada: {lote['entrega']['txt']}{' · Incluye estancia (+' + m2_txt(ESTANCIA_CONSTR_EXTRA) + ')' if con_estancia else ''}</div>
     <div class="house-s">{ACABADOS_TXT}</div>
   </div>
   <table class="eco">
-    <tr><td>Precio de lista</td><td>{money(precio_lista)}</td></tr>
+    <tr><td>Precio de lista{' <span class="small">(incluye estancia)</span>' if con_estancia else ''}</td><td>{money(precio_lista)}</td></tr>
     <tr><td>{desc_label}</td><td>{desc_val}</td></tr>
     <tr class="final"><td>Precio final</td><td>{money(precio_final)}</td></tr>
     <tr><td>Enganche <span class="small">{enganche_pct}% del precio final</span></td><td>{money(monto_enganche)}</td></tr>
@@ -438,49 +452,102 @@ def crear_pdf():
     pdf.set_xy(M + 5, y + 4)
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(*ink)
-    pdf.cell(0, 6, f"Lote {lote['n']} - 3 recamaras - 2.5 banos - Doble cochera")
+    titulo_casa = f"Lote {lote['n']} - 3 recamaras - 2.5 banos - Doble cochera"
+    if con_estancia:
+        titulo_casa += " + Estancia"
+    pdf.cell(0, 6, titulo_casa)
     pdf.set_font("Helvetica", "", 9.5)
     pdf.set_text_color(*gray)
     pdf.set_xy(M + 5, y + 11)
-    pdf.cell(0, 5, f"Privativo {lote['priv']:g} m2 - Construccion {lote['constr']:g} m2 - Patio {lote['patio']:g} m2")
+    pdf.cell(0, 5, f"Privativo {lote['priv']:g} m2 - Construccion {constr_mostrada:g} m2 - Patio {lote['patio']:g} m2")
     pdf.set_xy(M + 5, y + 17)
-    pdf.cell(0, 5, f"Terreno total {lote['terreno']:g} m2 - Entrega estimada: {lote['entrega']['txt']}")
+    entrega_linea = f"Terreno total {lote['terreno']:g} m2 - Entrega estimada: {lote['entrega']['txt']}"
+    if con_estancia:
+        entrega_linea += f" - Incluye estancia (+{ESTANCIA_CONSTR_EXTRA:g} m2)"
+    pdf.cell(0, 5, entrega_linea)
     pdf.set_xy(M + 5, y + 23)
     pdf.multi_cell(R - M - 10, 5, "Se entrega con pisos, closets, carpinteria de cocina con barra de "
                                     "granito, horno, campana, parrilla electrica y canceleria.")
 
-    # --- Condiciones económicas ---
+    # --- Condiciones económicas: tarjetas + escalón (estilo de la primera propuesta) ---
+    red = hexrgb("#DC3545")
+    green = hexrgb("#28A745")
+    gold = hexrgb("#B8860B")
+    cream = hexrgb("#FFFCF2")
+
     y = 106
     pdf.set_xy(M, y)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*blue)
     pdf.cell(0, 6, "CONDICIONES ECONOMICAS - LISTA DE PRECIOS 2")
-    y += 3
-    filas = [
-        ("Precio de lista", money(precio_lista), False),
-        (f"Descuento por enganche y plazo ({pct_txt(descuento_pct_val)})" if hay_desc
-         else "Descuento por enganche y plazo (sin descuento en esta combinacion)",
-         ("-" + money(monto_descuento)) if hay_desc else "$0", False),
-        ("Precio final", money(precio_final), True),
-        (f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche), False),
-        ("Saldo a liquidar", money(saldo_final), False),
-    ]
+    y += 9
+
+    gap = 4
+    cw3 = (R - M - 2 * gap) / 3
+    ch3 = 20
+    xs = [M, M + cw3 + gap, M + 2 * (cw3 + gap)]
+
+    def tarjeta(x, label, valor, color_valor, fuente_valor=13, borde=None):
+        pdf.set_fill_color(*soft)
+        pdf.rect(x, y, cw3, ch3, style="F")
+        if borde:
+            pdf.set_draw_color(*borde)
+            pdf.set_line_width(0.7)
+            pdf.rect(x, y, cw3, ch3, style="D")
+        pdf.set_xy(x + 4, y + 3.5)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*gray)
+        pdf.cell(cw3 - 8, 4, label)
+        pdf.set_xy(x + 4, y + 11)
+        pdf.set_font("Helvetica", "B", fuente_valor)
+        pdf.set_text_color(*color_valor)
+        pdf.cell(cw3 - 8, 8, valor)
+
+    label1 = "PRECIO DE LISTA (con estancia)" if con_estancia else "PRECIO DE LISTA"
+    tarjeta(xs[0], label1, money(precio_lista), ink, 12)
+    label2 = f"TU DESCUENTO ({descuento_pct_val:g}%)" if hay_desc else "SIN DESCUENTO"
+    tarjeta(xs[1], label2, ("-" + money(monto_descuento)) if hay_desc else "$0", red, 12)
+    tarjeta(xs[2], "PRECIO FINAL", money(precio_final), green, 14, borde=green)
+
+    y += ch3 + 2
+
+    if mostrar_escalon:
+        eb_h = 12
+        pdf.set_fill_color(*cream)
+        pdf.rect(M, y, R - M, eb_h, style="F")
+        pdf.set_draw_color(*gold)
+        pdf.set_line_width(0.6)
+        pdf.rect(M, y, R - M, eb_h, style="D")
+        restantes_txt = "venta mas" if restantes == 1 else "ventas mas"
+        pdf.set_xy(M + 5, y + 2)
+        pdf.set_font("Helvetica", "B", 10.5)
+        pdf.set_text_color(*gold)
+        pdf.cell(R - M - 10, 5.5, f"Al cerrar {restantes} {restantes_txt}, este lote sube a {money(precio_prox)}")
+        pdf.set_xy(M + 5, y + 7)
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*ink)
+        pdf.cell(R - M - 10, 5, f"Con esta misma forma de pago, el precio final pasaria a {money(final_prox)}.")
+        y += eb_h + 2
+    else:
+        y += 2
+
     rh = 9
-    for i, (label, val, strong) in enumerate(filas):
+    filas2 = [
+        (f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche)),
+        ("Saldo a liquidar", money(saldo_final)),
+    ]
+    for i, (label, val) in enumerate(filas2):
         top = y + i * rh
-        if strong:
-            pdf.set_fill_color(*soft)
-            pdf.rect(M, top, R - M, rh, style="F")
         pdf.set_draw_color(*line)
         pdf.set_line_width(0.3)
         pdf.line(M, top + rh, R, top + rh)
-        pdf.set_font("Helvetica", "B" if strong else "", 12 if strong else 10.5)
+        pdf.set_font("Helvetica", "", 10.5)
         pdf.set_text_color(*ink)
         pdf.set_xy(M + 2, top + 1.5)
         pdf.cell(R - M - 60, rh - 2, label)
         pdf.set_xy(R - 60, top + 1.5)
         pdf.cell(58, rh - 2, val, align="R")
-    y += len(filas) * rh + 10
+    y += len(filas2) * rh + 5
 
     # --- Plan de pago ---
     pdf.set_xy(M, y)
@@ -494,7 +561,7 @@ def crear_pdf():
     pdf.cell(0, 6, resumen_pagos)
     y += 5
 
-    ncols = 3
+    ncols = 4
     cw = (R - M) / ncols
     ch = 8
     for i, p in enumerate(pagos):
@@ -514,7 +581,7 @@ def crear_pdf():
         pdf.set_xy(cx + 3, cy + 1.2)
         pdf.cell(cw - 8, ch - 3, money(p), align="R")
     import math
-    y += math.ceil(len(pagos) / ncols) * ch + 8
+    y += math.ceil(len(pagos) / ncols) * ch + 6
 
     # --- Liquidación ---
     pdf.set_xy(M, y)
