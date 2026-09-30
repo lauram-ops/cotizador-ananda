@@ -566,8 +566,9 @@ def crear_pdf():
                               "traves de brokers aliados. El credito esta sujeto a aprobacion de la "
                               "institucion financiera.")
 
-    # --- Pie (posición dinámica: con enganches largos el contenido de arriba crece) ---
-    fy = max(252, pdf.get_y() + 6)
+    # --- Pie: siempre justo debajo del contenido, nunca anclado a un mínimo fijo
+    # (forzarlo a un mínimo era lo que partía la hoja en dos cuando la cotización era corta).
+    fy = pdf.get_y() + 6
     pdf.set_draw_color(*line)
     pdf.line(M, fy, R, fy)
     pdf.set_font("Helvetica", "", 8)
