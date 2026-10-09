@@ -87,7 +87,7 @@ GRUPOS = [
     (34, 37, 133, 216.53, 120.8, 3299724, True,  74.12),
     (38, 44, 161, 262.11, 128.8, 3518249, True,  82.04),
 ]
-VENDIDOS = {23, 29, 44}
+VENDIDOS = {23, 26, 29, 33, 44}
 
 # La lista cambia cada 3 ventas; la siguiente lista sube 3% sobre la actual.
 VENDIDOS_AL_INICIO_DE_LISTA = 3   # vendidos cuando arrancó la Lista 2
@@ -566,8 +566,7 @@ def crear_pdf():
                               "traves de brokers aliados. El credito esta sujeto a aprobacion de la "
                               "institucion financiera.")
 
-    # --- Pie: siempre justo debajo del contenido, nunca anclado a un mínimo fijo
-    # (forzarlo a un mínimo era lo que partía la hoja en dos cuando la cotización era corta).
+    # --- Pie (posición dinámica: con enganches largos el contenido de arriba crece) ---
     fy = pdf.get_y() + 6
     pdf.set_draw_color(*line)
     pdf.line(M, fy, R, fy)
