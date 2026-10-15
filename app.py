@@ -117,21 +117,23 @@ for desde, hasta, priv, terreno, constr, precio, activo, desplante in GRUPOS:
             "vendido": n in VENDIDOS, "entrega": entrega_de(n),
         }
 
-# Descuento (%) por % de enganche (fila) y plazo en meses 1..13 (índice 0..12)
+# Descuento (%) por tramo de enganche y plazo en meses 1..6 (índice 0..5).
+# Tabla "Beneficios por enganche anticipado" vigente desde el 15-oct-2026.
+# Enganches intermedios aplican el beneficio del tramo inferior inmediato
+# (ej. 45% de enganche usa la fila del tramo 40%). Enganche mínimo para
+# acceder a beneficios: 20%.
+TIERS = [95, 80, 60, 50, 40, 30, 20]
 MATRIZ = {
-    95: [10.5, 10.5, 10.5, 10, 9.5, 9, 8.5, 8, 7.5, 7, 6.75, 6.5, 6.25],
-    90: [9.5, 9.5, 9.5, 9, 8.5, 8, 7.5, 7, 6.5, 6, 5.75, 5.5, 5.25],
-    80: [8.5, 8.5, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.75, 4.5, 4.25],
-    70: [7.5, 7.5, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.75, 3.5, 3.25],
-    60: [6.5, 6.5, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3, 2.75, 2.5, 2.25],
-    50: [5.5, 5.5, 5.5, 5, 4.5, 4, 3.5, 3, 2.5, 2, 1.75, 1.5, 1.25],
-    40: [4.5, 4.5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.75, 0.5, 0.25],
-    30: [3.5, 3.5, 3.5, 3, 2.5, 2, 1.5, 1, 0.5],
-    25: [2.5, 2.5, 2.5, 2, 1.5, 1, 0.5],
-    20: [2, 2, 2, 1.5, 1, 0.5],
-    15: [1.5, 1.5, 1.5, 1, 0.5],
+    95: [10, 9, 8, 7, 6, 5],
+    80: [8, 7, 6, 5, 4, 3],
+    60: [6, 5, 4, 3, 2, 1],
+    50: [5, 4, 3, 2, 1, 1],
+    40: [4, 3, 2, 1, 1, 1],
+    30: [3, 2, 1, 1, 1, 1],
+    20: [2, 1, 1],  # 4, 5 y 6 meses: sin descuento
 }
-ENGANCHES = [15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 95]
+ENGANCHE_MIN = 20
+PLAZO_MAX = 6
 
 ACABADOS_TXT = ("Se entrega con pisos, closets, carpintería de cocina con barra de granito, "
                 "horno, campana, parrilla eléctrica y cancelería.")
@@ -158,11 +160,20 @@ def fecha_larga(d):
     return f"{d.day} de {MESES[d.month - 1]} de {d.year}"
 
 
+def tramo_de(enganche):
+    """Enganches intermedios aplican el beneficio del tramo inferior inmediato."""
+    aplicables = [t for t in TIERS if t <= enganche]
+    return max(aplicables) if aplicables else None
+
+
 def obtener_descuento(enganche, plazo):
-    fila = MATRIZ.get(enganche, [])
+    tramo = tramo_de(enganche)
+    if tramo is None:
+        return None, None
+    fila = MATRIZ.get(tramo, [])
     if 1 <= plazo <= len(fila):
-        return fila[plazo - 1]
-    return None
+        return fila[plazo - 1], tramo
+    return None, tramo
 
 
 # ==============================================================================
@@ -205,9 +216,15 @@ else:
 
 col_a, col_b = st.sidebar.columns(2)
 with col_a:
-    enganche_pct = st.selectbox("% de enganche", ENGANCHES, index=ENGANCHES.index(30))
+    enganche_pct = st.number_input("% de enganche", min_value=ENGANCHE_MIN, max_value=100,
+                                    value=30, step=5)
 with col_b:
-    plazo_meses = st.selectbox("Plazo (meses)", list(range(1, 14)), index=5)
+    plazo_meses = st.selectbox("Plazo (meses)", list(range(1, PLAZO_MAX + 1)), index=2)
+
+st.sidebar.caption(
+    "Los enganches entre tramos (95/80/60/50/40/30/20%) aplican el beneficio "
+    "del tramo inferior inmediato. Enganche mínimo para acceder a beneficios: 20%."
+)
 
 # Fecha de liquidación: se llena sola con la entrega del lote seleccionado,
 # y el asesor puede editarla. Se reinicia solo cuando cambia el lote.
@@ -223,9 +240,10 @@ st.sidebar.caption('Se llena con la entrega estimada del lote. Edítala si el ac
 # ==============================================================================
 # CÁLCULOS
 # ==============================================================================
-descuento_pct = obtener_descuento(enganche_pct, plazo_meses)
+descuento_pct, tramo_aplicado = obtener_descuento(enganche_pct, plazo_meses)
 hay_desc = descuento_pct is not None
 descuento_pct_val = descuento_pct or 0.0
+tramo_distinto = tramo_aplicado is not None and tramo_aplicado != enganche_pct
 
 precio_casa = lote["precio"]  # precio de lista oficial, el que sube cada 3 ventas
 monto_estancia = ESTANCIA_PRECIO if con_estancia else 0
@@ -276,12 +294,17 @@ pagos_html = "".join(
     for i, p in enumerate(pagos)
 )
 
+tramo_nota = f" · tramo aplicado: {tramo_aplicado}%" if tramo_distinto else ""
+
 if hay_desc:
     base_desc_txt = "el subtotal (casa + estancia)" if con_estancia else "el precio de lista"
-    desc_label = f'Descuento por enganche y plazo <span class="small">{pct_txt(descuento_pct_val)} sobre {base_desc_txt}</span>'
+    desc_label = f'Descuento por enganche y plazo <span class="small">{pct_txt(descuento_pct_val)} sobre {base_desc_txt}{tramo_nota}</span>'
     desc_val = f'<span class="disc">-{money(monto_descuento)}</span>'
+elif tramo_aplicado is None:
+    desc_label = 'Descuento por enganche y plazo <span class="small">Enganche mínimo para acceder a beneficios: 20%</span>'
+    desc_val = "$0"
 else:
-    desc_label = 'Descuento por enganche y plazo <span class="small">Esta combinación no tiene descuento en la tabla vigente</span>'
+    desc_label = f'Descuento por enganche y plazo <span class="small">Esta combinación no tiene descuento en la tabla vigente{tramo_nota}</span>'
     desc_val = "$0"
 
 if plazo_meses == 1:
@@ -344,11 +367,12 @@ with col_izq:
         )
 
     if not hay_desc:
-        st.markdown(
-            '<div class="warn-note">Esta combinación de enganche y plazo no tiene descuento en la '
-            'tabla vigente. Confírmala antes de ofrecerla.</div>',
-            unsafe_allow_html=True,
-        )
+        if tramo_aplicado is None:
+            msg = "El enganche capturado es menor al mínimo (20%) para acceder a beneficios."
+        else:
+            msg = (f"Con {plazo_meses} meses de plazo, el tramo de {tramo_aplicado}% no tiene "
+                   "descuento en la tabla vigente. Confírmalo antes de ofrecerlo.")
+        st.markdown(f'<div class="warn-note">{msg}</div>', unsafe_allow_html=True)
 
     fin = datetime(fecha_cot.year, fecha_cot.month, 1)
     mm = fin.month - 1 + plazo_meses
@@ -493,8 +517,14 @@ def crear_pdf():
     if con_estancia:
         filas_eco.append(("+ Estancia (Prototipo B, planta alta)", money(monto_estancia), False, None))
         filas_eco.append(("Subtotal (casa + estancia)", money(precio_lista), True, None))
-    label_desc = f"Descuento por enganche y plazo ({descuento_pct_val:g}%)" if hay_desc else \
-        "Descuento por enganche y plazo (sin descuento en esta combinacion)"
+    if hay_desc:
+        label_desc = f"Descuento por enganche y plazo ({descuento_pct_val:g}%)"
+        if tramo_distinto:
+            label_desc += f" - tramo aplicado: {tramo_aplicado}%"
+    elif tramo_aplicado is None:
+        label_desc = "Descuento por enganche y plazo (enganche menor al minimo de 20%)"
+    else:
+        label_desc = "Descuento por enganche y plazo (sin descuento en esta combinacion)"
     filas_eco.append((label_desc, ("-" + money(monto_descuento)) if hay_desc else "$0", False, red))
     filas_eco.append(("Precio final", money(precio_final), True, None))
     filas_eco.append((f"Enganche ({enganche_pct}% del precio final)", money(monto_enganche), False, None))
@@ -528,7 +558,7 @@ def crear_pdf():
     pdf.cell(0, 6, resumen_pagos)
     y += 5
 
-    ncols = 5
+    ncols = PLAZO_MAX  # plazo max 6 meses: siempre cabe en un solo renglon
     cw = (R - M) / ncols
     ch = 8
     for i, p in enumerate(pagos):
